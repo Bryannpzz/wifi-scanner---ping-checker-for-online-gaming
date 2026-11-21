@@ -1,0 +1,115 @@
+import argparse
+import math
+import platform
+import re
+import statistics
+import subprocess
+import time
+
+PING_TIME = re.compile(r"\btime\s*[=<]\s*(\d+(?:[.,]\d+)?)\s*ms\b", re.IGNORECASE)
+
+
+def ping_once(host):
+    """Return ICMP round-trip time in milliseconds, or None if no reply."""
+    if platform.system() == "Windows":
+        command = ["ping", "-n", "1", "-w", "1500", host]
+    else:
+        command = ["ping", "-n", "-c", "1", host]
+
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, errors="replace", timeout=3
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    except FileNotFoundError:
+        raise SystemExit("Error: system 'ping' command was not found.")
+
+    match = PING_TIME.search(result.stdout + "\n" + result.stderr)
+    if result.returncode != 0 or not match:
+        return None
+    return float(match.group(1).replace(",", "."))
+
+
+def rate_connection(median, p95, jitter, packet_loss):
+    # Guidelines, not guarantees: game-server routes can give different results.
+    if packet_loss >= 5 or median > 150 or p95 > 220 or jitter > 40:
+        return "POOR", "Unreliable for online gaming; lag/disconnects are likely."
+    if packet_loss > 0 or median > 100 or p95 > 160 or jitter > 25:
+        return "BORDERLINE", "Casual games may work; competitive play may lag."
+    if median <= 40 and p95 <= 70 and jitter <= 10:
+        return "EXCELLENT", "Great for online gaming, including competitive play."
+    if median <= 80 and p95 <= 120 and jitter <= 20:
+        return "GOOD", "Suitable for most online games on PS5 or PC."
+    return "FAIR", "Playable for many games, but fast-paced games may feel laggy."
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Test internet ping for PS5/PC gaming")
+    parser.add_argument("--host", default="1.1.1.1", help="Ping target (default: 1.1.1.1)")
+    parser.add_argument("--count", type=int, default=25, help="Number of pings (default: 25)")
+    parser.add_argument("--interval", type=float, default=0.4, help="Seconds between ping starts (default: 0.4)")
+    args = parser.parse_args()
+    if args.count < 5 or args.interval < 0:
+        parser.error("--count must be at least 5 and --interval must be nonnegative")
+
+    print(f"\nTesting connection to {args.host} for PS5 / PC gaming...")
+    replies = []
+    samples = []
+    try:
+        for index in range(args.count):
+            started = time.monotonic()
+            latency = ping_once(args.host)
+            samples.append(latency)
+            if latency is None:
+                print(f"[{index + 1:02d}/{args.count}] No reply (possible packet loss)")
+            else:
+                replies.append(latency)
+                print(f"[{index + 1:02d}/{args.count}] {latency:.1f} ms")
+            elapsed = time.monotonic() - started
+            if index < args.count - 1:
+                time.sleep(max(0, args.interval - elapsed))
+    except KeyboardInterrupt:
+        print("\nTest stopped.")
+        return
+
+    lost = args.count - len(replies)
+    loss_pct = 100 * lost / args.count
+    print("\n--- RESULTS ---")
+    print(f"Replies: {len(replies)}/{args.count} | Packet loss: {loss_pct:.1f}%")
+    if not replies:
+        print("Could not measure ping. The target may block ICMP, or the network may be down.")
+        print("Try: python game_connection_tester.py --host 8.8.8.8")
+        return
+
+    median = statistics.median(replies)
+    ordered = sorted(replies)
+    p95 = ordered[math.ceil(0.95 * len(ordered)) - 1]
+    # Compare successive successful measurements only (no gaps from lost packets).
+    differences = [
+        abs(b - a)
+        for a, b in zip(samples, samples[1:])
+        if a is not None and b is not None
+    ]
+    jitter = statistics.mean(differences) if differences else 0.0
+
+    print(f"Median ping: {median:.1f} ms")
+    print(f"95th-percentile ping: {p95:.1f} ms")
+    print(f"Jitter (average ping variation): {jitter:.1f} ms")
+
+    if not differences:
+        print("\nRATING: INCONCLUSIVE — Too few adjacent replies to measure jitter.")
+        return
+
+    rating, explanation = rate_connection(median, p95, jitter, loss_pct)
+    print(f"\nGAMING RATING: {rating}")
+    print(explanation)
+    if rating in ("POOR", "BORDERLINE", "FAIR"):
+        print("Tips: Try Ethernet, use 5 GHz Wi-Fi if needed, and pause downloads.")
+    print("\nNote: This measures your PC's connection to the chosen host, not a")
+    print("specific game's servers. PS5 results can differ, especially on Wi-Fi.")
+    print("It also cannot check PS5 NAT type or your download/upload speeds.")
+
+
+if __name__ == "__main__":
+    main()
