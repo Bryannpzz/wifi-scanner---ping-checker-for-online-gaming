@@ -1,5 +1,5 @@
-How to run it
-1. Download the Python file above.
-2. Open Command Prompt (Windows) or Terminal (Mac/Linux).
-3. Navigate to the folder containing the file.
-4. Run:
+Windows: First, download the game_connection_tester.py file and save it in your Downloads folder. Open Command Prompt by searching for cmd in the Windows search bar. Type cd %USERPROFILE%\Downloads and press Enter to navigate to your Downloads folder. Then type py game_connection_tester.py and press Enter to start the program.
+
+Mac: First, download the game_connection_tester.py file and save it in your Downloads folder. Open Terminal by pressing Command + Space and searching for Terminal. Type cd ~/Downloads and press Enter to navigate to your Downloads folder. Then type python3 game_connection_tester.py and press Enter to run the program.
+
+Note: Make sure Python 3 is installed on your computer. Once the program starts, it will automatically test your ping, jitter, and packet loss to determine whether your internet connection is suitable for online gaming on PS5 or PC.
